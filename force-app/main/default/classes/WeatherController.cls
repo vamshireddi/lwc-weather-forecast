@@ -1,30 +1,23 @@
 /**
  * @description Backend controller for the Next-Gen Weather Forecast LWC.
- * Performs REST GET callouts to OpenWeatherMap API for current weather
- * and 7-day forecast data.
+ * Performs REST GET callouts to Open-Meteo (Free, No API Key) for current weather,
+ * hourly forecast, and 7-day forecast data.
  *
- * Requires a Remote Site Setting for: https://api.openweathermap.org
- * Requires a Custom Metadata or Custom Setting to store the API key,
- * or you can set it directly in the API_KEY constant for development.
+ * Requires Remote Site Settings for: 
+ * - https://api.open-meteo.com
+ * - https://geocoding-api.open-meteo.com
+ * - https://api.zippopotam.us
  *
  * @author Copilot
  * @since 2026-02-24
  */
 public with sharing class WeatherController {
 
-    /** @description OpenWeatherMap API key. Replace with your own key. */
-    private static final String API_KEY = 'YOUR_API_KEY_HERE';
-
-    /** @description Base URL for OpenWeatherMap API. */
-    private static final String BASE_URL = 'https://api.openweathermap.org';
-
-    /**
-     * @description Wrapper for current weather data returned to the LWC.
-     */
     public class WeatherResult {
         @AuraEnabled public Boolean success;
         @AuraEnabled public String errorMessage;
         @AuraEnabled public CurrentWeather current;
+        @AuraEnabled public List<HourlyForecast> hourly;
         @AuraEnabled public List<DailyForecast> daily;
         @AuraEnabled public String locationName;
         @AuraEnabled public String country;
@@ -32,9 +25,6 @@ public with sharing class WeatherController {
         @AuraEnabled public Decimal lon;
     }
 
-    /**
-     * @description Current weather snapshot.
-     */
     public class CurrentWeather {
         @AuraEnabled public Decimal temp;
         @AuraEnabled public Decimal feelsLike;
@@ -49,11 +39,18 @@ public with sharing class WeatherController {
         @AuraEnabled public Integer visibility;
         @AuraEnabled public Long sunrise;
         @AuraEnabled public Long sunset;
+        @AuraEnabled public Boolean isDay;
+        @AuraEnabled public Integer weatherCode;
     }
 
-    /**
-     * @description Single day in the 7-day forecast.
-     */
+    public class HourlyForecast {
+        @AuraEnabled public Long timeUnix;
+        @AuraEnabled public String timeStr;
+        @AuraEnabled public Decimal temp;
+        @AuraEnabled public String icon;
+        @AuraEnabled public String description;
+    }
+
     public class DailyForecast {
         @AuraEnabled public String dayName;
         @AuraEnabled public String dateStr;
@@ -67,17 +64,10 @@ public with sharing class WeatherController {
         @AuraEnabled public Decimal pop;
     }
 
-    /**
-     * @description Fetch current weather and 7-day forecast for a location.
-     * Accepts city name, "City, State", "City, Country", or zip code.
-     * @param location The search query (e.g., "San Francisco", "94105").
-     * @return WeatherResult with current conditions and daily forecast.
-     */
     @AuraEnabled
     public static WeatherResult getForecast(String location) {
         WeatherResult result = new WeatherResult();
         result.success = false;
-        result.daily = new List<DailyForecast>();
 
         if (String.isBlank(location)) {
             result.errorMessage = 'Please enter a location to search.';
@@ -85,270 +75,288 @@ public with sharing class WeatherController {
         }
 
         try {
-            // Step 1: Geocode the location to get lat/lon
-            Map<String, Decimal> coords = geocodeLocation(location.trim());
-            if (coords == null) {
+            Map<String, Object> geoInfo = geocodeLocation(location.trim());
+            if (geoInfo == null) {
                 result.errorMessage = 'Location not found. Try "City, Country" or a zip code.';
                 return result;
             }
 
-            Decimal lat = coords.get('lat');
-            Decimal lon = coords.get('lon');
-            String resolvedName = '';
-            String resolvedCountry = '';
+            Decimal lat = (Decimal) geoInfo.get('lat');
+            Decimal lon = (Decimal) geoInfo.get('lon');
+            String locName = (String) geoInfo.get('name');
+            String country = (String) geoInfo.get('country');
 
-            // Extract name from geocode response if available
-            if (coords.containsKey('nameHash')) {
-                // We store name info in a separate call — get it from geo response
-            }
-
-            // Step 2: Get current weather using lat/lon
-            String currentUrl = BASE_URL + '/data/2.5/weather?lat=' + lat
-                + '&lon=' + lon + '&appid=' + API_KEY + '&units=metric';
-
-            HttpResponse currentResp = makeCallout(currentUrl);
-            if (currentResp.getStatusCode() != 200) {
-                result.errorMessage = 'Unable to fetch current weather (HTTP ' + currentResp.getStatusCode() + ').';
-                return result;
-            }
-
-            Map<String, Object> currentData = (Map<String, Object>) JSON.deserializeUntyped(currentResp.getBody());
-            result.current = parseCurrentWeather(currentData);
-            result.locationName = (String) currentData.get('name');
-            Map<String, Object> sys = (Map<String, Object>) currentData.get('sys');
-            if (sys != null) {
-                result.country = (String) sys.get('country');
-            }
-            result.lat = lat;
-            result.lon = lon;
-
-            // Step 3: Get 7-day forecast using One Call API 3.0
-            // Fallback: use 5-day/3-hour forecast and aggregate by day
-            String forecastUrl = BASE_URL + '/data/2.5/forecast?lat=' + lat
-                + '&lon=' + lon + '&appid=' + API_KEY + '&units=metric';
-
-            HttpResponse forecastResp = makeCallout(forecastUrl);
-            if (forecastResp.getStatusCode() == 200) {
-                Map<String, Object> forecastData = (Map<String, Object>) JSON.deserializeUntyped(forecastResp.getBody());
-                result.daily = parseDailyForecast(forecastData);
-            }
-
-            result.success = true;
-
+            return fetchWeatherByCoords(lat, lon, locName, country);
         } catch (Exception e) {
             result.errorMessage = 'An error occurred: ' + e.getMessage();
             System.debug(LoggingLevel.ERROR, 'WeatherController.getForecast error: ' + e.getMessage() + ' | ' + e.getStackTraceString());
         }
-
         return result;
     }
 
-    /**
-     * @description Geocode a location string to lat/lon coordinates.
-     * @param location City name, zip code, or "City, Country" format.
-     * @return Map with 'lat' and 'lon' keys, or null if not found.
-     */
-    @TestVisible
-    private static Map<String, Decimal> geocodeLocation(String location) {
-        String endpoint;
+    @AuraEnabled
+    public static WeatherResult getForecastByCoordinates(Decimal lat, Decimal lon) {
+        WeatherResult result = new WeatherResult();
+        result.success = false;
 
-        // Check if input is a zip/postal code (digits only, or digits+dash for US)
-        if (location.isNumeric() || Pattern.matches('\\d{5}(-\\d{4})?', location)) {
-            endpoint = BASE_URL + '/geo/1.0/zip?zip=' + EncodingUtil.urlEncode(location, 'UTF-8')
-                + '&appid=' + API_KEY;
-        } else {
-            endpoint = BASE_URL + '/geo/1.0/direct?q=' + EncodingUtil.urlEncode(location, 'UTF-8')
-                + '&limit=1&appid=' + API_KEY;
-        }
-
-        HttpResponse resp = makeCallout(endpoint);
-        if (resp.getStatusCode() != 200) {
-            return null;
-        }
-
-        String body = resp.getBody();
-        Map<String, Decimal> coords = new Map<String, Decimal>();
-
-        // Zip endpoint returns an object; direct endpoint returns an array
-        if (body.startsWith('[')) {
-            List<Object> results = (List<Object>) JSON.deserializeUntyped(body);
-            if (results.isEmpty()) {
-                return null;
+        try {
+            // Reverse geocode to get city name
+            String endpoint = 'https://geocoding-api.open-meteo.com/v1/reverse?latitude=' + lat + '&longitude=' + lon + '&count=1';
+            HttpResponse resp = makeCallout(endpoint);
+            String locName = 'Current Location';
+            String country = '';
+            
+            if (resp.getStatusCode() == 200) {
+                Map<String, Object> data = (Map<String, Object>) JSON.deserializeUntyped(resp.getBody());
+                List<Object> results = (List<Object>) data.get('results');
+                if (results != null && !results.isEmpty()) {
+                    Map<String, Object> first = (Map<String, Object>) results[0];
+                    locName = (String) first.get('name');
+                    country = (String) first.get('country_code');
+                }
             }
-            Map<String, Object> first = (Map<String, Object>) results[0];
-            coords.put('lat', (Decimal) first.get('lat'));
-            coords.put('lon', (Decimal) first.get('lon'));
-        } else if (body.startsWith('{')) {
-            Map<String, Object> data = (Map<String, Object>) JSON.deserializeUntyped(body);
-            if (!data.containsKey('lat')) {
-                return null;
-            }
-            coords.put('lat', (Decimal) data.get('lat'));
-            coords.put('lon', (Decimal) data.get('lon'));
-        } else {
-            return null;
-        }
 
-        return coords;
+            return fetchWeatherByCoords(lat, lon, locName, country);
+        } catch (Exception e) {
+            result.errorMessage = 'An error occurred: ' + e.getMessage();
+            System.debug(LoggingLevel.ERROR, 'WeatherController.getForecastByCoordinates error: ' + e.getMessage() + ' | ' + e.getStackTraceString());
+        }
+        return result;
     }
 
-    /**
-     * @description Parse current weather JSON into a CurrentWeather object.
-     * @param data Deserialized JSON map from the weather API.
-     * @return Populated CurrentWeather instance.
-     */
+    private static WeatherResult fetchWeatherByCoords(Decimal lat, Decimal lon, String locName, String country) {
+        WeatherResult result = new WeatherResult();
+        result.success = false;
+        result.locationName = locName;
+        result.country = country;
+        result.lat = lat;
+        result.lon = lon;
+        result.hourly = new List<HourlyForecast>();
+        result.daily = new List<DailyForecast>();
+
+        String weatherUrl = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon 
+            + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,cloud_cover,surface_pressure,wind_speed_10m'
+            + '&hourly=temperature_2m,weather_code,is_day'
+            + '&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max'
+            + '&timezone=auto&timeformat=unixtime&forecast_days=7&forecast_hours=24';
+
+        HttpResponse weatherResp = makeCallout(weatherUrl);
+        if (weatherResp.getStatusCode() != 200) {
+            result.errorMessage = 'Unable to fetch weather data (HTTP ' + weatherResp.getStatusCode() + ').';
+            return result;
+        }
+
+        Map<String, Object> weatherData = (Map<String, Object>) JSON.deserializeUntyped(weatherResp.getBody());
+        
+        // Parse Current
+        Map<String, Object> currentData = (Map<String, Object>) weatherData.get('current');
+        result.current = parseCurrentWeather(currentData);
+        
+        // Parse Hourly
+        Map<String, Object> hourlyData = (Map<String, Object>) weatherData.get('hourly');
+        result.hourly = parseHourlyForecast(hourlyData);
+
+        // Parse Daily
+        Map<String, Object> dailyData = (Map<String, Object>) weatherData.get('daily');
+        result.daily = parseDailyForecast(dailyData);
+
+        if (!result.daily.isEmpty()) {
+            result.current.tempMax = result.daily[0].tempHigh;
+            result.current.tempMin = result.daily[0].tempLow;
+            
+            List<Object> sunrises = (List<Object>) dailyData.get('sunrise');
+            List<Object> sunsets = (List<Object>) dailyData.get('sunset');
+            if (sunrises != null && !sunrises.isEmpty()) result.current.sunrise = toLong(sunrises[0]);
+            if (sunsets != null && !sunsets.isEmpty()) result.current.sunset = toLong(sunsets[0]);
+        }
+
+        result.success = true;
+        return result;
+    }
+
+    @TestVisible
+    private static Map<String, Object> geocodeLocation(String location) {
+        Map<String, Object> geoInfo = new Map<String, Object>();
+
+        Matcher m = Pattern.compile('\\b\\d{5}\\b').matcher(location);
+        if (m.find()) {
+            String zipParam = m.group(0);
+            String endpoint = 'https://api.zippopotam.us/us/' + EncodingUtil.urlEncode(zipParam, 'UTF-8');
+            
+            HttpResponse resp = makeCallout(endpoint);
+            if (resp.getStatusCode() == 200) {
+                Map<String, Object> data = (Map<String, Object>) JSON.deserializeUntyped(resp.getBody());
+                List<Object> places = (List<Object>) data.get('places');
+                if (places != null && !places.isEmpty()) {
+                    Map<String, Object> place = (Map<String, Object>) places[0];
+                    geoInfo.put('lat', Decimal.valueOf((String) place.get('latitude')));
+                    geoInfo.put('lon', Decimal.valueOf((String) place.get('longitude')));
+                    geoInfo.put('name', (String) place.get('place name'));
+                    geoInfo.put('country', (String) data.get('country abbreviation'));
+                    return geoInfo;
+                }
+            }
+        }
+        
+        String endpoint = 'https://geocoding-api.open-meteo.com/v1/search?name=' + EncodingUtil.urlEncode(location, 'UTF-8') + '&count=1';
+        
+        HttpResponse resp = makeCallout(endpoint);
+        if (resp.getStatusCode() != 200) return null;
+        
+        Map<String, Object> data = (Map<String, Object>) JSON.deserializeUntyped(resp.getBody());
+        List<Object> results = (List<Object>) data.get('results');
+        if (results == null || results.isEmpty()) return null;
+        
+        Map<String, Object> first = (Map<String, Object>) results[0];
+        geoInfo.put('lat', toDecimal(first.get('latitude')));
+        geoInfo.put('lon', toDecimal(first.get('longitude')));
+        geoInfo.put('name', (String) first.get('name'));
+        geoInfo.put('country', (String) first.get('country_code'));
+        return geoInfo;
+    }
+
     @TestVisible
     private static CurrentWeather parseCurrentWeather(Map<String, Object> data) {
         CurrentWeather cw = new CurrentWeather();
+        if (data == null) return cw;
 
-        Map<String, Object> main = (Map<String, Object>) data.get('main');
-        if (main != null) {
-            cw.temp = toDecimal(main.get('temp'));
-            cw.feelsLike = toDecimal(main.get('feels_like'));
-            cw.tempMin = toDecimal(main.get('temp_min'));
-            cw.tempMax = toDecimal(main.get('temp_max'));
-            cw.humidity = toInteger(main.get('humidity'));
-            cw.pressure = toInteger(main.get('pressure'));
-        }
+        cw.temp = toDecimal(data.get('temperature_2m'));
+        cw.feelsLike = toDecimal(data.get('apparent_temperature'));
+        cw.humidity = toInteger(data.get('relative_humidity_2m'));
+        cw.pressure = toInteger(data.get('surface_pressure'));
+        cw.windSpeed = toDecimal(data.get('wind_speed_10m'));
+        cw.visibility = 10000;
 
-        Map<String, Object> wind = (Map<String, Object>) data.get('wind');
-        if (wind != null) {
-            cw.windSpeed = toDecimal(wind.get('speed'));
-        }
+        Integer weatherCode = toInteger(data.get('weather_code'));
+        Boolean isDay = toInteger(data.get('is_day')) == 1;
+        
+        cw.weatherCode = weatherCode;
+        cw.isDay = isDay;
 
-        cw.visibility = toInteger(data.get('visibility'));
-
-        List<Object> weatherList = (List<Object>) data.get('weather');
-        if (weatherList != null && !weatherList.isEmpty()) {
-            Map<String, Object> weather = (Map<String, Object>) weatherList[0];
-            cw.description = (String) weather.get('description');
-            cw.icon = (String) weather.get('icon');
-            cw.main = (String) weather.get('main');
-        }
-
-        Map<String, Object> sys = (Map<String, Object>) data.get('sys');
-        if (sys != null) {
-            cw.sunrise = toLong(sys.get('sunrise'));
-            cw.sunset = toLong(sys.get('sunset'));
-        }
+        Map<String, String> wmo = mapWmoCode(weatherCode, isDay);
+        cw.main = wmo.get('main');
+        cw.description = wmo.get('description');
+        cw.icon = wmo.get('icon');
 
         return cw;
     }
 
-    /**
-     * @description Parse 5-day/3-hour forecast into daily aggregates.
-     * Groups by date and picks high/low temps for each day.
-     * @param data Deserialized JSON map from the forecast API.
-     * @return List of up to 7 DailyForecast entries.
-     */
+    @TestVisible
+    private static List<HourlyForecast> parseHourlyForecast(Map<String, Object> data) {
+        List<HourlyForecast> hourlyList = new List<HourlyForecast>();
+        if (data == null) return hourlyList;
+
+        List<Object> times = (List<Object>) data.get('time');
+        List<Object> temps = (List<Object>) data.get('temperature_2m');
+        List<Object> codes = (List<Object>) data.get('weather_code');
+        List<Object> isDays = (List<Object>) data.get('is_day');
+
+        if (times == null) return hourlyList;
+
+        Long currentUnix = Datetime.now().getTime() / 1000;
+
+        for (Integer i = 0; i < times.size(); i++) {
+            Long unixTime = toLong(times[i]);
+            
+            if (unixTime >= currentUnix - 3600) {
+                HourlyForecast hf = new HourlyForecast();
+                hf.timeUnix = unixTime;
+                
+                Datetime dt = Datetime.newInstance(unixTime * 1000);
+                hf.timeStr = dt.format('h a');
+                
+                hf.temp = temps != null && i < temps.size() ? toDecimal(temps[i]) : null;
+                
+                Integer code = codes != null && i < codes.size() ? toInteger(codes[i]) : 0;
+                Boolean isDay = isDays != null && i < isDays.size() ? toInteger(isDays[i]) == 1 : true;
+                
+                Map<String, String> wmo = mapWmoCode(code, isDay);
+                hf.icon = wmo.get('icon');
+                hf.description = wmo.get('description');
+                
+                hourlyList.add(hf);
+                
+                if (hourlyList.size() >= 24) break;
+            }
+        }
+
+        return hourlyList;
+    }
+
     @TestVisible
     private static List<DailyForecast> parseDailyForecast(Map<String, Object> data) {
         List<DailyForecast> dailyList = new List<DailyForecast>();
-        List<Object> entries = (List<Object>) data.get('list');
-        if (entries == null) {
-            return dailyList;
-        }
+        if (data == null) return dailyList;
 
-        // Group entries by date
-        Map<String, List<Map<String, Object>>> byDate = new Map<String, List<Map<String, Object>>>();
-        List<String> dateOrder = new List<String>();
+        List<Object> times = (List<Object>) data.get('time');
+        List<Object> codes = (List<Object>) data.get('weather_code');
+        List<Object> maxTemps = (List<Object>) data.get('temperature_2m_max');
+        List<Object> minTemps = (List<Object>) data.get('temperature_2m_min');
+        List<Object> pops = (List<Object>) data.get('precipitation_probability_max');
 
-        for (Object entry : entries) {
-            Map<String, Object> item = (Map<String, Object>) entry;
-            String dtTxt = (String) item.get('dt_txt');
-            if (dtTxt == null) {
-                continue;
-            }
-            String dateKey = dtTxt.substring(0, 10); // "2026-02-24"
+        if (times == null) return dailyList;
 
-            if (!byDate.containsKey(dateKey)) {
-                byDate.put(dateKey, new List<Map<String, Object>>());
-                dateOrder.add(dateKey);
-            }
-            byDate.get(dateKey).add(item);
-        }
-
-        // Build daily aggregates (up to 7 days)
-        Integer count = 0;
-        for (String dateKey : dateOrder) {
-            if (count >= 7) {
-                break;
-            }
-
-            List<Map<String, Object>> dayEntries = byDate.get(dateKey);
+        for (Integer i = 0; i < times.size(); i++) {
             DailyForecast df = new DailyForecast();
-
-            // Parse date for display
-            Date d = Date.valueOf(dateKey);
-            Datetime dt = Datetime.newInstance(d.year(), d.month(), d.day());
+            
+            Long unixTime = toLong(times[i]);
+            Datetime dt = Datetime.newInstance(unixTime * 1000);
             df.dayName = dt.format('EEE');
             df.dateStr = dt.format('MMM d');
 
-            Decimal high = -999;
-            Decimal low = 999;
-            Decimal totalHumidity = 0;
-            Decimal totalWind = 0;
-            Decimal maxPop = 0;
-            String mainWeather = '';
-            String iconCode = '';
-
-            for (Map<String, Object> item : dayEntries) {
-                Map<String, Object> mainData = (Map<String, Object>) item.get('main');
-                if (mainData != null) {
-                    Decimal tempMax = toDecimal(mainData.get('temp_max'));
-                    Decimal tempMin = toDecimal(mainData.get('temp_min'));
-                    if (tempMax != null && tempMax > high) {
-                        high = tempMax;
-                    }
-                    if (tempMin != null && tempMin < low) {
-                        low = tempMin;
-                    }
-                    totalHumidity += toDecimal(mainData.get('humidity'));
-                }
-
-                Map<String, Object> windData = (Map<String, Object>) item.get('wind');
-                if (windData != null) {
-                    totalWind += toDecimal(windData.get('speed'));
-                }
-
-                Decimal pop = toDecimal(item.get('pop'));
-                if (pop != null && pop > maxPop) {
-                    maxPop = pop;
-                }
-
-                List<Object> weatherList = (List<Object>) item.get('weather');
-                if (weatherList != null && !weatherList.isEmpty()) {
-                    Map<String, Object> weather = (Map<String, Object>) weatherList[0];
-                    // Use midday reading for representative icon
-                    String timePart = ((String) item.get('dt_txt')).substring(11, 13);
-                    if (timePart == '12' || String.isBlank(mainWeather)) {
-                        mainWeather = (String) weather.get('main');
-                        iconCode = (String) weather.get('icon');
-                        df.description = (String) weather.get('description');
-                    }
-                }
-            }
-
-            df.tempHigh = (high > -999) ? high.setScale(1) : null;
-            df.tempLow = (low < 999) ? low.setScale(1) : null;
-            df.humidity = (Integer) (totalHumidity / dayEntries.size()).round(System.RoundingMode.HALF_UP);
-            df.windSpeed = (totalWind / dayEntries.size()).setScale(1);
-            df.pop = (maxPop * 100).setScale(0);
-            df.main = mainWeather;
-            df.icon = iconCode;
+            df.tempHigh = maxTemps != null && i < maxTemps.size() ? toDecimal(maxTemps[i]) : null;
+            df.tempLow = minTemps != null && i < minTemps.size() ? toDecimal(minTemps[i]) : null;
+            df.pop = pops != null && i < pops.size() ? toDecimal(pops[i]) : 0;
+            
+            Integer code = codes != null && i < codes.size() ? toInteger(codes[i]) : 0;
+            Map<String, String> wmo = mapWmoCode(code, true);
+            df.main = wmo.get('main');
+            df.description = wmo.get('description');
+            df.icon = wmo.get('icon');
+            
+            df.humidity = 50;
+            df.windSpeed = 0;
 
             dailyList.add(df);
-            count++;
         }
 
         return dailyList;
     }
 
-    /**
-     * @description Perform an HTTP GET callout.
-     * @param url The endpoint URL.
-     * @return HttpResponse from the callout.
-     */
+    private static Map<String, String> mapWmoCode(Integer code, Boolean isDay) {
+        Map<String, String> res = new Map<String, String>();
+        String d = isDay ? 'd' : 'n';
+        
+        if (code == 0) {
+            res.put('main', 'Clear'); res.put('description', 'clear sky'); res.put('icon', '01' + d);
+        } else if (code == 1) {
+            res.put('main', 'Clouds'); res.put('description', 'mainly clear'); res.put('icon', '02' + d);
+        } else if (code == 2) {
+            res.put('main', 'Clouds'); res.put('description', 'partly cloudy'); res.put('icon', '03' + d);
+        } else if (code == 3) {
+            res.put('main', 'Clouds'); res.put('description', 'overcast'); res.put('icon', '04' + d);
+        } else if (code == 45 || code == 48) {
+            res.put('main', 'Fog'); res.put('description', 'fog'); res.put('icon', '50' + d);
+        } else if (code >= 51 && code <= 57) {
+            res.put('main', 'Drizzle'); res.put('description', 'drizzle'); res.put('icon', '09' + d);
+        } else if (code >= 61 && code <= 65) {
+            res.put('main', 'Rain'); res.put('description', 'rain'); res.put('icon', '10' + d);
+        } else if (code == 66 || code == 67) {
+            res.put('main', 'Rain'); res.put('description', 'freezing rain'); res.put('icon', '13' + d);
+        } else if (code >= 71 && code <= 77) {
+            res.put('main', 'Snow'); res.put('description', 'snow'); res.put('icon', '13' + d);
+        } else if (code >= 80 && code <= 82) {
+            res.put('main', 'Rain'); res.put('description', 'rain showers'); res.put('icon', '09' + d);
+        } else if (code == 85 || code == 86) {
+            res.put('main', 'Snow'); res.put('description', 'snow showers'); res.put('icon', '13' + d);
+        } else if (code >= 95 && code <= 99) {
+            res.put('main', 'Thunderstorm'); res.put('description', 'thunderstorm'); res.put('icon', '11' + d);
+        } else {
+            res.put('main', 'Unknown'); res.put('description', 'unknown'); res.put('icon', '01' + d);
+        }
+        return res;
+    }
+
     @TestVisible
     private static HttpResponse makeCallout(String url) {
         Http http = new Http();
@@ -359,69 +367,24 @@ public with sharing class WeatherController {
         return http.send(req);
     }
 
-    /**
-     * @description Safely cast Object to Decimal.
-     * @param val The value to convert.
-     * @return Decimal value, or null.
-     */
     private static Decimal toDecimal(Object val) {
-        if (val == null) {
-            return 0;
-        }
-        if (val instanceof Decimal) {
-            return (Decimal) val;
-        }
-        if (val instanceof Integer) {
-            return Decimal.valueOf((Integer) val);
-        }
-        if (val instanceof Long) {
-            return Decimal.valueOf((Long) val);
-        }
-        try {
-            return Decimal.valueOf(String.valueOf(val));
-        } catch (Exception e) {
-            return 0;
-        }
+        if (val == null) return 0;
+        if (val instanceof Decimal) return (Decimal) val;
+        if (val instanceof Integer) return Decimal.valueOf((Integer) val);
+        if (val instanceof Long) return Decimal.valueOf((Long) val);
+        try { return Decimal.valueOf(String.valueOf(val)); } catch (Exception e) { return 0; }
     }
 
-    /**
-     * @description Safely cast Object to Integer.
-     * @param val The value to convert.
-     * @return Integer value, or 0.
-     */
     private static Integer toInteger(Object val) {
-        if (val == null) {
-            return 0;
-        }
-        if (val instanceof Integer) {
-            return (Integer) val;
-        }
-        try {
-            return Integer.valueOf(val);
-        } catch (Exception e) {
-            return 0;
-        }
+        if (val == null) return 0;
+        if (val instanceof Integer) return (Integer) val;
+        try { return Integer.valueOf(String.valueOf(val)); } catch (Exception e) { return 0; }
     }
 
-    /**
-     * @description Safely cast Object to Long.
-     * @param val The value to convert.
-     * @return Long value, or null.
-     */
     private static Long toLong(Object val) {
-        if (val == null) {
-            return null;
-        }
-        if (val instanceof Long) {
-            return (Long) val;
-        }
-        if (val instanceof Integer) {
-            return (Long) val;
-        }
-        try {
-            return Long.valueOf(String.valueOf(val));
-        } catch (Exception e) {
-            return null;
-        }
+        if (val == null) return null;
+        if (val instanceof Long) return (Long) val;
+        if (val instanceof Integer) return (Long) val;
+        try { return Long.valueOf(String.valueOf(val)); } catch (Exception e) { return null; }
     }
 }

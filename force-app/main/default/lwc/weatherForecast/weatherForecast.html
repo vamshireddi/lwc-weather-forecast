@@ -2,164 +2,257 @@
     <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
          Next-Gen Weather Forecast — Glassmorphism Theme
          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
-    <div class="weather-app">
-        <!-- ─── Search Bar ─────────────────────────── -->
-        <div class="search-section">
-            <div class="search-container">
-                <lightning-input
-                    type="text"
-                    placeholder="Search city, state or zip code..."
-                    value={searchQuery}
-                    onchange={handleSearchInput}
-                    onkeyup={handleKeyUp}
-                    variant="label-hidden"
-                    class="search-input"
-                ></lightning-input>
-                <button class="search-btn" onclick={handleSearch} title="Search">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-                         fill="none" stroke="currentColor" stroke-width="2.5"
-                         stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="11" cy="11" r="8"></circle>
-                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    </svg>
-                </button>
-            </div>
-        </div>
-
-        <!-- ─── Loading Skeleton ───────────────────── -->
-        <template if:true={isLoading}>
-            <div class="skeleton-wrapper">
-                <div class="skeleton-hero">
-                    <div class="skeleton-line skeleton-lg"></div>
-                    <div class="skeleton-line skeleton-xl"></div>
-                    <div class="skeleton-line skeleton-md"></div>
-                </div>
-                <div class="skeleton-grid">
-                    <div class="skeleton-card"></div>
-                    <div class="skeleton-card"></div>
-                    <div class="skeleton-card"></div>
-                    <div class="skeleton-card"></div>
-                    <div class="skeleton-card"></div>
-                </div>
-            </div>
-        </template>
-
-        <!-- ─── Error State ────────────────────────── -->
-        <template if:true={errorMessage}>
-            <div class="error-container">
-                <div class="error-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
-                         fill="none" stroke="currentColor" stroke-width="1.5"
-                         stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="12" y1="8" x2="12" y2="12"></line>
-                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                    </svg>
-                </div>
-                <p class="error-text">{errorMessage}</p>
-            </div>
-        </template>
-
-        <!-- ─── Weather Content ────────────────────── -->
-        <template if:true={hasWeatherData}>
-            <!-- Hero Section -->
-            <div class="hero-section">
-                <div class="hero-location">
-                    <h1 class="location-name">{locationDisplay}</h1>
-                    <p class="location-coords">{coordsDisplay}</p>
-                </div>
-
-                <div class="hero-main">
-                    <div class="hero-temp-group">
-                        <div class="weather-icon-container">
-                            <img src={currentIconUrl} alt={weatherData.current.description} class="weather-icon-hero" />
-                        </div>
-                        <span class="hero-temp">{currentTempRounded}</span>
-                        <span class="hero-unit">°C</span>
-                    </div>
-                    <p class="hero-description">{weatherData.current.description}</p>
-                    <p class="hero-feels-like">Feels like {feelsLikeRounded}°C</p>
-                </div>
-
-                <!-- Detail Chips -->
-                <div class="detail-chips">
-                    <div class="chip">
-                        <span class="chip-icon">💧</span>
-                        <span class="chip-label">Humidity</span>
-                        <span class="chip-value">{weatherData.current.humidity}%</span>
-                    </div>
-                    <div class="chip">
-                        <span class="chip-icon">💨</span>
-                        <span class="chip-label">Wind</span>
-                        <span class="chip-value">{windDisplay}</span>
-                    </div>
-                    <div class="chip">
-                        <span class="chip-icon">👁</span>
-                        <span class="chip-label">Visibility</span>
-                        <span class="chip-value">{visibilityDisplay}</span>
-                    </div>
-                    <div class="chip">
-                        <span class="chip-icon">🌡</span>
-                        <span class="chip-label">Pressure</span>
-                        <span class="chip-value">{weatherData.current.pressure} hPa</span>
-                    </div>
-                </div>
-
-                <!-- High / Low -->
-                <div class="high-low-bar">
-                    <span class="high-low">
-                        <span class="hl-arrow hl-up">↑</span> {tempMaxRounded}°
-                    </span>
-                    <span class="high-low">
-                        <span class="hl-arrow hl-down">↓</span> {tempMinRounded}°
-                    </span>
-                    <span class="high-low sunrise-sunset">
-                        <span class="hl-arrow">🌅</span> {sunriseTime}
-                    </span>
-                    <span class="high-low sunrise-sunset">
-                        <span class="hl-arrow">🌇</span> {sunsetTime}
-                    </span>
+    <div class={dynamicBackgroundClass}>
+        <div class="weather-app">
+            <!-- ─── Header Controls ────────────────────── -->
+            <div class="header-controls">
+                <div class="unit-toggle">
+                    <span class={celsiusClass}>°C</span>
+                    <label class="switch">
+                        <input type="checkbox" checked={isFahrenheit} onchange={toggleUnit}>
+                        <span class="slider round"></span>
+                    </label>
+                    <span class={fahrenheitClass}>°F</span>
                 </div>
             </div>
 
-            <!-- ─── 7-Day Forecast Grid ────────────── -->
-            <template if:true={hasForecast}>
-                <div class="forecast-section">
-                    <h2 class="forecast-title">Daily Forecast</h2>
-                    <div class="forecast-scroll">
-                        <template for:each={weatherData.daily} for:item="day">
-                            <div key={day.dayName} class="forecast-card">
-                                <span class="fc-day">{day.dayName}</span>
-                                <span class="fc-date">{day.dateStr}</span>
-                                <img src={day.iconUrl} alt={day.description} class="fc-icon" />
-                                <span class="fc-desc">{day.main}</span>
-                                <div class="fc-temps">
-                                    <span class="fc-high">{day.tempHigh}°</span>
-                                    <span class="fc-low">{day.tempLow}°</span>
-                                </div>
-                                <div class="fc-detail">
-                                    <span class="fc-rain">💧 {day.pop}%</span>
-                                </div>
+            <!-- ─── Search Bar ─────────────────────────── -->
+            <div class="search-section">
+                <div class="search-container">
+                    <button class="gps-btn" onclick={handleGetLocation} title="Use My Location">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
+                    </button>
+                    <div class="search-input-wrapper">
+                        <lightning-input
+                            type="text"
+                            placeholder="Search city, state or zip code..."
+                            value={searchQuery}
+                            onchange={handleSearchInput}
+                            onkeyup={handleKeyUp}
+                            onfocus={handleSearchFocus}
+                            onblur={handleSearchBlur}
+                            variant="label-hidden"
+                            class="search-input"
+                        ></lightning-input>
+                        
+                        <!-- Recent Searches Dropdown -->
+                        <template if:true={showRecentSearches}>
+                            <div class="recent-searches-dropdown">
+                                <div class="rs-header">Recent Searches</div>
+                                <template for:each={recentSearches} for:item="rs">
+                                    <div key={rs} class="rs-item" data-query={rs} onclick={handleRecentSearchClick}>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                                        {rs}
+                                    </div>
+                                </template>
                             </div>
                         </template>
                     </div>
+                    <button class="search-btn" onclick={handleSearch} title="Search">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                             fill="none" stroke="currentColor" stroke-width="2.5"
+                             stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- ─── Loading Skeleton ───────────────────── -->
+            <template if:true={isLoading}>
+                <div class="skeleton-wrapper">
+                    <div class="skeleton-hero">
+                        <div class="skeleton-line skeleton-lg"></div>
+                        <div class="skeleton-line skeleton-xl"></div>
+                        <div class="skeleton-line skeleton-md"></div>
+                    </div>
+                    <div class="skeleton-grid">
+                        <div class="skeleton-card"></div>
+                        <div class="skeleton-card"></div>
+                        <div class="skeleton-card"></div>
+                        <div class="skeleton-card"></div>
+                        <div class="skeleton-card"></div>
+                    </div>
                 </div>
             </template>
-        </template>
 
-        <!-- ─── Welcome State (no data yet) ────────── -->
-        <template if:false={showContent}>
-            <div class="welcome-container">
-                <div class="welcome-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24"
-                         fill="none" stroke="currentColor" stroke-width="1"
-                         stroke-linecap="round" stroke-linejoin="round" class="welcome-svg">
-                        <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
-                    </svg>
+            <!-- ─── Error State ────────────────────────── -->
+            <template if:true={errorMessage}>
+                <div class="error-container">
+                    <div class="error-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
+                             fill="none" stroke="currentColor" stroke-width="1.5"
+                             stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                    </div>
+                    <p class="error-text">{errorMessage}</p>
                 </div>
-                <h2 class="welcome-title">Weather Forecast</h2>
-                <p class="welcome-text">Search for a city or zip code to see current conditions and a multi-day forecast.</p>
-            </div>
-        </template>
+            </template>
+
+            <!-- ─── Weather Content ────────────────────── -->
+            <template if:true={hasWeatherData}>
+                <!-- Hero Section -->
+                <div class="hero-section">
+                    <div class="hero-location">
+                        <template if:true={isDaySelected}>
+                            <button class="back-btn" onclick={handleBackClick}>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                                Back to Current Weather
+                            </button>
+                        </template>
+                        <h1 class="location-name">{locationDisplay}</h1>
+                        <p class="location-coords">{coordsDisplay}</p>
+                    </div>
+
+                    <!-- Current Weather View -->
+                    <template if:false={isDaySelected}>
+                        <div class="hero-main">
+                            <div class="hero-temp-group">
+                                <div class="weather-icon-container">
+                                    <img src={currentIconUrl} alt={weatherData.current.description} class="weather-icon-hero" />
+                                </div>
+                                <span class="hero-temp">{currentTempRounded}</span>
+                                <span class="hero-unit">{tempUnit}</span>
+                            </div>
+                            <p class="hero-description">{weatherData.current.description}</p>
+                            <p class="hero-feels-like">Feels like {feelsLikeRounded}{tempUnit}</p>
+                        </div>
+
+                        <!-- Detail Chips -->
+                        <div class="detail-chips">
+                            <div class="chip">
+                                <span class="chip-icon">💧</span>
+                                <span class="chip-label">Humidity</span>
+                                <span class="chip-value">{weatherData.current.humidity}%</span>
+                            </div>
+                            <div class="chip">
+                                <span class="chip-icon">💨</span>
+                                <span class="chip-label">Wind</span>
+                                <span class="chip-value">{windDisplay}</span>
+                            </div>
+                            <div class="chip">
+                                <span class="chip-icon">👁</span>
+                                <span class="chip-label">Visibility</span>
+                                <span class="chip-value">{visibilityDisplay}</span>
+                            </div>
+                            <div class="chip">
+                                <span class="chip-icon">🌡</span>
+                                <span class="chip-label">Pressure</span>
+                                <span class="chip-value">{weatherData.current.pressure} hPa</span>
+                            </div>
+                        </div>
+
+                        <!-- High / Low -->
+                        <div class="high-low-bar">
+                            <span class="high-low">
+                                <span class="hl-arrow hl-up">↑</span> {tempMaxRounded}°
+                            </span>
+                            <span class="high-low">
+                                <span class="hl-arrow hl-down">↓</span> {tempMinRounded}°
+                            </span>
+                            <span class="high-low sunrise-sunset">
+                                <span class="hl-arrow">🌅</span> {sunriseTime}
+                            </span>
+                            <span class="high-low sunrise-sunset">
+                                <span class="hl-arrow">🌇</span> {sunsetTime}
+                            </span>
+                        </div>
+                    </template>
+
+                    <!-- Selected Day View -->
+                    <template if:true={isDaySelected}>
+                        <div class="hero-main">
+                            <div class="hero-temp-group">
+                                <div class="weather-icon-container">
+                                    <img src={selectedDay.iconUrl} alt={selectedDay.description} class="weather-icon-hero" />
+                                </div>
+                                <span class="hero-temp">{selectedDayHigh}</span>
+                                <span class="hero-unit">{tempUnit}</span>
+                            </div>
+                            <p class="hero-description">{selectedDay.description}</p>
+                            <p class="hero-feels-like">{selectedDay.dayName}, {selectedDay.dateStr}</p>
+                        </div>
+
+                        <!-- Detail Chips -->
+                        <div class="detail-chips">
+                            <div class="chip">
+                                <span class="chip-icon">💧</span>
+                                <span class="chip-label">Rain Chance</span>
+                                <span class="chip-value">{selectedDay.pop}%</span>
+                            </div>
+                            <div class="chip">
+                                <span class="chip-icon">💨</span>
+                                <span class="chip-label">Wind</span>
+                                <span class="chip-value">{selectedDayWind}</span>
+                            </div>
+                            <div class="chip">
+                                <span class="chip-icon">🌡</span>
+                                <span class="chip-label">Low Temp</span>
+                                <span class="chip-value">{selectedDayLow}{tempUnit}</span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- ─── Hourly Forecast Slider ───────────── -->
+                <template if:true={hasHourly}>
+                    <div class="forecast-section hourly-section">
+                        <h2 class="forecast-title">24-Hour Forecast</h2>
+                        <div class="forecast-scroll">
+                            <template for:each={weatherData.hourly} for:item="hour">
+                                <div key={hour.timeUnix} class="hourly-card">
+                                    <span class="hc-time">{hour.timeStr}</span>
+                                    <img src={hour.iconUrl} alt={hour.description} class="hc-icon" />
+                                    <span class="hc-temp">{hour.tempDisplay}°</span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- ─── 7-Day Forecast Grid ────────────── -->
+                <template if:true={hasForecast}>
+                    <div class="forecast-section">
+                        <h2 class="forecast-title">Daily Forecast</h2>
+                        <div class="forecast-scroll">
+                            <template for:each={weatherData.daily} for:item="day" for:index="index">
+                                <div key={day.dayName} class="forecast-card" data-index={index} onclick={handleDayClick}>
+                                    <span class="fc-day">{day.dayName}</span>
+                                    <span class="fc-date">{day.dateStr}</span>
+                                    <img src={day.iconUrl} alt={day.description} class="fc-icon" />
+                                    <span class="fc-desc">{day.main}</span>
+                                    <div class="fc-temps">
+                                        <span class="fc-high">{day.tempHighDisplay}°</span>
+                                        <span class="fc-low">{day.tempLowDisplay}°</span>
+                                    </div>
+                                    <div class="fc-detail">
+                                        <span class="fc-rain">💧 {day.pop}%</span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </template>
+
+            <!-- ─── Welcome State (no data yet) ────────── -->
+            <template if:false={showContent}>
+                <div class="welcome-container">
+                    <div class="welcome-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24"
+                             fill="none" stroke="currentColor" stroke-width="1"
+                             stroke-linecap="round" stroke-linejoin="round" class="welcome-svg">
+                            <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
+                        </svg>
+                    </div>
+                    <h2 class="welcome-title">Weather Forecast</h2>
+                    <p class="welcome-text">Search for a city or zip code to see current conditions and a multi-day forecast.</p>
+                </div>
+            </template>
+        </div>
     </div>
 </template>

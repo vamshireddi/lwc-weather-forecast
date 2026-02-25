@@ -1,6 +1,6 @@
 /**
- * @description Test class for WeatherController.
- * Uses HttpCalloutMock to simulate OpenWeatherMap API responses.
+ * @description Test class for WeatherController (Open-Meteo & Zippopotam.us).
+ * Uses HttpCalloutMock to simulate API responses.
  *
  * @author Copilot
  * @since 2026-02-24
@@ -8,58 +8,80 @@
 @IsTest
 private class WeatherControllerTest {
 
-    // ─── Mock: Successful geocode (direct) + weather + forecast ───
-    private class SuccessMock implements HttpCalloutMock {
+    // ─── Mock: Successful geocode (city) + weather ───
+    private class SuccessCityMock implements HttpCalloutMock {
         public HttpResponse respond(HttpRequest req) {
             HttpResponse res = new HttpResponse();
             res.setHeader('Content-Type', 'application/json');
             String endpoint = req.getEndpoint();
 
-            if (endpoint.contains('/geo/1.0/direct')) {
+            if (endpoint.contains('geocoding-api.open-meteo.com')) {
                 res.setStatusCode(200);
-                res.setBody('[{"lat":37.7749,"lon":-122.4194,"name":"San Francisco","country":"US"}]');
-            } else if (endpoint.contains('/geo/1.0/zip')) {
+                res.setBody('{"results":[{"id":5391959,"name":"San Francisco","latitude":37.77493,"longitude":-122.41942,"elevation":15.0,"feature_code":"PPLA2","country_code":"US","admin1_id":5332921,"admin2_id":5391997,"timezone":"America/Los_Angeles","population":864816,"country_id":6252001,"country":"United States","admin1":"California","admin2":"San Francisco"}]}');
+            } else if (endpoint.contains('api.open-meteo.com/v1/forecast')) {
                 res.setStatusCode(200);
-                res.setBody('{"lat":37.7749,"lon":-122.4194,"name":"San Francisco","country":"US","zip":"94105"}');
-            } else if (endpoint.contains('/data/2.5/weather')) {
-                res.setStatusCode(200);
-                res.setBody(getMockCurrentWeather());
-            } else if (endpoint.contains('/data/2.5/forecast')) {
-                res.setStatusCode(200);
-                res.setBody(getMockForecast());
+                res.setBody(getMockWeather());
             } else {
                 res.setStatusCode(404);
-                res.setBody('{"message":"not found"}');
+                res.setBody('{"error":true,"reason":"Not found"}');
             }
             return res;
         }
     }
 
-    // ─── Mock: Location not found ───
-    private class NotFoundMock implements HttpCalloutMock {
+    // ─── Mock: Successful geocode (zip) + weather ───
+    private class SuccessZipMock implements HttpCalloutMock {
         public HttpResponse respond(HttpRequest req) {
             HttpResponse res = new HttpResponse();
             res.setHeader('Content-Type', 'application/json');
             String endpoint = req.getEndpoint();
 
-            if (endpoint.contains('/geo/1.0/direct')) {
+            if (endpoint.contains('api.zippopotam.us')) {
                 res.setStatusCode(200);
-                res.setBody('[]');
+                res.setBody('{"post code": "94105", "country": "United States", "country abbreviation": "US", "places": [{"place name": "San Francisco", "longitude": "-122.3948", "state": "California", "state abbreviation": "CA", "latitude": "37.7864"}]}');
+            } else if (endpoint.contains('api.open-meteo.com/v1/forecast')) {
+                res.setStatusCode(200);
+                res.setBody(getMockWeather());
             } else {
                 res.setStatusCode(404);
-                res.setBody('{"message":"not found"}');
+                res.setBody('{"error":true,"reason":"Not found"}');
             }
             return res;
         }
     }
 
-    // ─── Mock: Geocode returns HTTP error ───
-    private class GeoErrorMock implements HttpCalloutMock {
+    // ─── Mock: Location not found (city) ───
+    private class NotFoundCityMock implements HttpCalloutMock {
         public HttpResponse respond(HttpRequest req) {
             HttpResponse res = new HttpResponse();
             res.setHeader('Content-Type', 'application/json');
-            res.setStatusCode(401);
-            res.setBody('{"cod":401,"message":"Invalid API key"}');
+            String endpoint = req.getEndpoint();
+
+            if (endpoint.contains('geocoding-api.open-meteo.com')) {
+                res.setStatusCode(200);
+                res.setBody('{"generationtime_ms":0.123}'); // No results array
+            } else {
+                res.setStatusCode(404);
+                res.setBody('{"error":true,"reason":"Not found"}');
+            }
+            return res;
+        }
+    }
+
+    // ─── Mock: Location not found (zip) ───
+    private class NotFoundZipMock implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            HttpResponse res = new HttpResponse();
+            res.setHeader('Content-Type', 'application/json');
+            String endpoint = req.getEndpoint();
+
+            if (endpoint.contains('api.zippopotam.us')) {
+                res.setStatusCode(404);
+                res.setBody('{}');
+            } else {
+                res.setStatusCode(404);
+                res.setBody('{"error":true,"reason":"Not found"}');
+            }
             return res;
         }
     }
@@ -71,12 +93,12 @@ private class WeatherControllerTest {
             res.setHeader('Content-Type', 'application/json');
             String endpoint = req.getEndpoint();
 
-            if (endpoint.contains('/geo/1.0/direct')) {
+            if (endpoint.contains('geocoding-api.open-meteo.com')) {
                 res.setStatusCode(200);
-                res.setBody('[{"lat":37.7749,"lon":-122.4194}]');
-            } else if (endpoint.contains('/data/2.5/weather')) {
+                res.setBody('{"results":[{"id":5391959,"name":"San Francisco","latitude":37.77493,"longitude":-122.41942,"country_code":"US"}]}');
+            } else if (endpoint.contains('api.open-meteo.com/v1/forecast')) {
                 res.setStatusCode(500);
-                res.setBody('{"message":"Internal Server Error"}');
+                res.setBody('{"error":true,"reason":"Internal Server Error"}');
             } else {
                 res.setStatusCode(200);
                 res.setBody('{}');
@@ -85,310 +107,127 @@ private class WeatherControllerTest {
         }
     }
 
-    // ─── Mock: Forecast returns error but current weather succeeds ───
-    private class ForecastErrorMock implements HttpCalloutMock {
-        public HttpResponse respond(HttpRequest req) {
-            HttpResponse res = new HttpResponse();
-            res.setHeader('Content-Type', 'application/json');
-            String endpoint = req.getEndpoint();
-
-            if (endpoint.contains('/geo/1.0/direct')) {
-                res.setStatusCode(200);
-                res.setBody('[{"lat":37.7749,"lon":-122.4194}]');
-            } else if (endpoint.contains('/data/2.5/weather')) {
-                res.setStatusCode(200);
-                res.setBody(getMockCurrentWeather());
-            } else if (endpoint.contains('/data/2.5/forecast')) {
-                res.setStatusCode(500);
-                res.setBody('{"message":"error"}');
-            } else {
-                res.setStatusCode(200);
-                res.setBody('{}');
-            }
-            return res;
-        }
+    // ─── Helper: Mock Weather JSON ───
+    private static String getMockWeather() {
+        return '{' +
+            '"latitude": 37.7749,' +
+            '"longitude": -122.4194,' +
+            '"generationtime_ms": 0.123,' +
+            '"utc_offset_seconds": -28800,' +
+            '"timezone": "America/Los_Angeles",' +
+            '"timezone_abbreviation": "PST",' +
+            '"elevation": 15.0,' +
+            '"current": {' +
+                '"time": 1708790400,' +
+                '"temperature_2m": 15.5,' +
+                '"relative_humidity_2m": 75,' +
+                '"apparent_temperature": 14.2,' +
+                '"is_day": 1,' +
+                '"weather_code": 3,' +
+                '"cloud_cover": 100,' +
+                '"surface_pressure": 1012.5,' +
+                '"wind_speed_10m": 12.5' +
+            '},' +
+            '"daily": {' +
+                '"time": [1708761600, 1708848000, 1708934400, 1709020800, 1709107200, 1709193600, 1709280000],' +
+                '"weather_code": [3, 61, 0, 1, 2, 3, 45],' +
+                '"temperature_2m_max": [18.5, 16.2, 19.1, 20.5, 21.0, 18.8, 17.5],' +
+                '"temperature_2m_min": [10.2, 11.5, 9.8, 10.5, 11.2, 12.0, 10.8],' +
+                '"sunrise": [1708786800, 1708873140, 1708959480, 1709045820, 1709132160, 1709218500, 1709304840],' +
+                '"sunset": [1708826400, 1708912860, 1708999320, 1709085780, 1709172240, 1709258700, 1709345160],' +
+                '"precipitation_probability_max": [10, 80, 0, 5, 10, 20, 5]' +
+            '}' +
+        '}';
     }
 
-    // ─── Mock: Zip code geocode ───
-    private class ZipMock implements HttpCalloutMock {
-        public HttpResponse respond(HttpRequest req) {
-            HttpResponse res = new HttpResponse();
-            res.setHeader('Content-Type', 'application/json');
-            String endpoint = req.getEndpoint();
-
-            if (endpoint.contains('/geo/1.0/zip')) {
-                res.setStatusCode(200);
-                res.setBody('{"lat":37.7749,"lon":-122.4194,"name":"San Francisco","zip":"94105"}');
-            } else if (endpoint.contains('/data/2.5/weather')) {
-                res.setStatusCode(200);
-                res.setBody(getMockCurrentWeather());
-            } else if (endpoint.contains('/data/2.5/forecast')) {
-                res.setStatusCode(200);
-                res.setBody(getMockForecast());
-            } else {
-                res.setStatusCode(200);
-                res.setBody('{}');
-            }
-            return res;
-        }
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    //  TEST METHODS
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ─── Tests ───
 
     @IsTest
-    static void testGetForecastByCity() {
-        Test.setMock(HttpCalloutMock.class, new SuccessMock());
+    static void testGetForecast_SuccessCity() {
+        Test.setMock(HttpCalloutMock.class, new SuccessCityMock());
 
         Test.startTest();
         WeatherController.WeatherResult result = WeatherController.getForecast('San Francisco');
         Test.stopTest();
 
-        System.assertEquals(true, result.success, 'Should succeed for valid city');
-        System.assertNotEquals(null, result.current, 'Should have current weather');
-        System.assertEquals('San Francisco', result.locationName, 'Location name should match');
-        System.assertNotEquals(null, result.current.temp, 'Should have temperature');
-        System.assertEquals('Clouds', result.current.main, 'Should have weather condition');
-        System.assert(!result.daily.isEmpty(), 'Should have daily forecast entries');
+        System.assertEquals(true, result.success, 'Expected success to be true');
+        System.assertEquals('San Francisco', result.locationName, 'Expected location name to match');
+        System.assertEquals('US', result.country, 'Expected country to match');
+        System.assertNotEquals(null, result.current, 'Expected current weather to be populated');
+        System.assertEquals(15.5, result.current.temp, 'Expected current temp to match mock');
+        System.assertEquals('Clouds', result.current.main, 'Expected weather code 3 to map to Clouds');
+        System.assertEquals(7, result.daily.size(), 'Expected 7 days of forecast');
+        System.assertEquals(18.5, result.daily[0].tempHigh, 'Expected daily high to match mock');
     }
 
     @IsTest
-    static void testGetForecastByZipCode() {
-        Test.setMock(HttpCalloutMock.class, new ZipMock());
+    static void testGetForecast_SuccessZip() {
+        Test.setMock(HttpCalloutMock.class, new SuccessZipMock());
 
         Test.startTest();
         WeatherController.WeatherResult result = WeatherController.getForecast('94105');
         Test.stopTest();
 
-        System.assertEquals(true, result.success, 'Should succeed for zip code');
-        System.assertNotEquals(null, result.current, 'Should have current weather');
-        System.assertNotEquals(null, result.lat, 'Should have latitude');
-        System.assertNotEquals(null, result.lon, 'Should have longitude');
+        System.assertEquals(true, result.success, 'Expected success to be true');
+        System.assertEquals('San Francisco', result.locationName, 'Expected location name to match');
+        System.assertEquals('US', result.country, 'Expected country to match');
+        System.assertNotEquals(null, result.current, 'Expected current weather to be populated');
     }
 
     @IsTest
-    static void testGetForecastBlankLocation() {
+    static void testGetForecast_BlankLocation() {
         Test.startTest();
         WeatherController.WeatherResult result = WeatherController.getForecast('');
         Test.stopTest();
 
-        System.assertEquals(false, result.success, 'Should fail for blank location');
-        System.assertEquals('Please enter a location to search.', result.errorMessage, 'Should have blank location error');
+        System.assertEquals(false, result.success, 'Expected success to be false');
+        System.assertEquals('Please enter a location to search.', result.errorMessage, 'Expected blank location error message');
     }
 
     @IsTest
-    static void testGetForecastNullLocation() {
-        Test.startTest();
-        WeatherController.WeatherResult result = WeatherController.getForecast(null);
-        Test.stopTest();
-
-        System.assertEquals(false, result.success, 'Should fail for null location');
-        System.assertEquals('Please enter a location to search.', result.errorMessage, 'Error message mismatch');
-    }
-
-    @IsTest
-    static void testGetForecastLocationNotFound() {
-        Test.setMock(HttpCalloutMock.class, new NotFoundMock());
+    static void testGetForecast_NotFoundCity() {
+        Test.setMock(HttpCalloutMock.class, new NotFoundCityMock());
 
         Test.startTest();
-        WeatherController.WeatherResult result = WeatherController.getForecast('XYZABC123NOTREAL');
+        WeatherController.WeatherResult result = WeatherController.getForecast('FakeCity123');
         Test.stopTest();
 
-        System.assertEquals(false, result.success, 'Should fail for unknown location');
-        System.assert(result.errorMessage.containsIgnoreCase('not found'), 'Should mention location not found');
+        System.assertEquals(false, result.success, 'Expected success to be false');
+        System.assertEquals('Location not found. Try "City, Country" or a zip code.', result.errorMessage, 'Expected not found error message');
     }
 
     @IsTest
-    static void testGetForecastGeoError() {
-        Test.setMock(HttpCalloutMock.class, new GeoErrorMock());
+    static void testGetForecast_NotFoundZip() {
+        Test.setMock(HttpCalloutMock.class, new NotFoundZipMock());
 
         Test.startTest();
-        WeatherController.WeatherResult result = WeatherController.getForecast('London');
+        WeatherController.WeatherResult result = WeatherController.getForecast('00000');
         Test.stopTest();
 
-        System.assertEquals(false, result.success, 'Should fail when geocode returns error');
-        System.assert(result.errorMessage.containsIgnoreCase('not found'), 'Error should indicate location issue');
+        System.assertEquals(false, result.success, 'Expected success to be false');
+        System.assertEquals('Location not found. Try "City, Country" or a zip code.', result.errorMessage, 'Expected not found error message');
     }
 
     @IsTest
-    static void testGetForecastWeatherApiError() {
+    static void testGetForecast_WeatherError() {
         Test.setMock(HttpCalloutMock.class, new WeatherErrorMock());
 
         Test.startTest();
-        WeatherController.WeatherResult result = WeatherController.getForecast('New York');
+        WeatherController.WeatherResult result = WeatherController.getForecast('San Francisco');
         Test.stopTest();
 
-        System.assertEquals(false, result.success, 'Should fail when weather API returns error');
-        System.assert(result.errorMessage.contains('HTTP 500'), 'Should show HTTP status code');
+        System.assertEquals(false, result.success, 'Expected success to be false');
+        System.assert(result.errorMessage.contains('Unable to fetch weather data'), 'Expected weather fetch error message');
     }
 
     @IsTest
-    static void testGetForecastForecastErrorStillSucceeds() {
-        Test.setMock(HttpCalloutMock.class, new ForecastErrorMock());
-
-        Test.startTest();
-        WeatherController.WeatherResult result = WeatherController.getForecast('Tokyo');
-        Test.stopTest();
-
-        // Current weather succeeds but forecast fails → overall still success
-        System.assertEquals(true, result.success, 'Should succeed even if forecast fails');
-        System.assertNotEquals(null, result.current, 'Should have current weather');
-        System.assertEquals(0, result.daily.size(), 'Should have empty daily list when forecast fails');
-    }
-
-    @IsTest
-    static void testCurrentWeatherParsing() {
-        Test.setMock(HttpCalloutMock.class, new SuccessMock());
-
+    static void testGetForecast_Exception() {
+        // No mock set, will throw CalloutException
         Test.startTest();
         WeatherController.WeatherResult result = WeatherController.getForecast('San Francisco');
         Test.stopTest();
 
-        WeatherController.CurrentWeather cw = result.current;
-        System.assertNotEquals(null, cw.temp, 'temp should be set');
-        System.assertNotEquals(null, cw.feelsLike, 'feelsLike should be set');
-        System.assertNotEquals(null, cw.humidity, 'humidity should be set');
-        System.assertNotEquals(null, cw.windSpeed, 'windSpeed should be set');
-        System.assertNotEquals(null, cw.description, 'description should be set');
-        System.assertNotEquals(null, cw.icon, 'icon should be set');
-        System.assertNotEquals(null, cw.sunrise, 'sunrise should be set');
-        System.assertNotEquals(null, cw.sunset, 'sunset should be set');
-    }
-
-    @IsTest
-    static void testDailyForecastParsing() {
-        Test.setMock(HttpCalloutMock.class, new SuccessMock());
-
-        Test.startTest();
-        WeatherController.WeatherResult result = WeatherController.getForecast('San Francisco');
-        Test.stopTest();
-
-        System.assert(result.daily.size() > 0, 'Should have at least one forecast day');
-        WeatherController.DailyForecast day = result.daily[0];
-        System.assertNotEquals(null, day.dayName, 'dayName should be set');
-        System.assertNotEquals(null, day.dateStr, 'dateStr should be set');
-        System.assertNotEquals(null, day.tempHigh, 'tempHigh should be set');
-        System.assertNotEquals(null, day.tempLow, 'tempLow should be set');
-        System.assertNotEquals(null, day.description, 'description should be set');
-    }
-
-    @IsTest
-    static void testCountryReturned() {
-        Test.setMock(HttpCalloutMock.class, new SuccessMock());
-
-        Test.startTest();
-        WeatherController.WeatherResult result = WeatherController.getForecast('San Francisco');
-        Test.stopTest();
-
-        System.assertEquals('US', result.country, 'Country should be US');
-    }
-
-    @IsTest
-    static void testCoordsReturned() {
-        Test.setMock(HttpCalloutMock.class, new SuccessMock());
-
-        Test.startTest();
-        WeatherController.WeatherResult result = WeatherController.getForecast('San Francisco');
-        Test.stopTest();
-
-        System.assertEquals(37.7749, result.lat, 'Latitude mismatch');
-        System.assertEquals(-122.4194, result.lon, 'Longitude mismatch');
-    }
-
-    @IsTest
-    static void testWeatherResultDefaults() {
-        WeatherController.WeatherResult wr = new WeatherController.WeatherResult();
-        System.assertEquals(null, wr.success, 'Default success should be null');
-        System.assertEquals(null, wr.errorMessage, 'Default error should be null');
-        System.assertEquals(null, wr.current, 'Default current should be null');
-        System.assertEquals(null, wr.locationName, 'Default locationName should be null');
-    }
-
-    @IsTest
-    static void testCurrentWeatherWrapper() {
-        WeatherController.CurrentWeather cw = new WeatherController.CurrentWeather();
-        cw.temp = 22.5;
-        cw.feelsLike = 21.0;
-        cw.humidity = 65;
-        cw.windSpeed = 5.5;
-        cw.description = 'scattered clouds';
-        cw.icon = '03d';
-        cw.main = 'Clouds';
-        cw.pressure = 1013;
-        cw.visibility = 10000;
-        cw.sunrise = 1708851600;
-        cw.sunset = 1708893600;
-
-        System.assertEquals(22.5, cw.temp, 'temp mismatch');
-        System.assertEquals('Clouds', cw.main, 'main mismatch');
-        System.assertEquals(65, cw.humidity, 'humidity mismatch');
-    }
-
-    @IsTest
-    static void testDailyForecastWrapper() {
-        WeatherController.DailyForecast df = new WeatherController.DailyForecast();
-        df.dayName = 'Mon';
-        df.dateStr = 'Feb 24';
-        df.tempHigh = 18.5;
-        df.tempLow = 10.2;
-        df.description = 'light rain';
-        df.icon = '10d';
-        df.main = 'Rain';
-        df.humidity = 80;
-        df.windSpeed = 3.2;
-        df.pop = 75;
-
-        System.assertEquals('Mon', df.dayName, 'dayName mismatch');
-        System.assertEquals(18.5, df.tempHigh, 'tempHigh mismatch');
-        System.assertEquals(75, df.pop, 'pop mismatch');
-    }
-
-    @IsTest
-    static void testZipCodeWithDash() {
-        Test.setMock(HttpCalloutMock.class, new ZipMock());
-
-        Test.startTest();
-        // US zip+4 format should also route to zip endpoint
-        WeatherController.WeatherResult result = WeatherController.getForecast('94105');
-        Test.stopTest();
-
-        System.assertEquals(true, result.success, 'Should handle zip code');
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    //  MOCK DATA HELPERS
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private static String getMockCurrentWeather() {
-        return '{'
-            + '"coord":{"lon":-122.4194,"lat":37.7749},'
-            + '"weather":[{"id":802,"main":"Clouds","description":"scattered clouds","icon":"03d"}],'
-            + '"main":{"temp":15.2,"feels_like":14.5,"temp_min":13.0,"temp_max":17.1,"pressure":1015,"humidity":72},'
-            + '"visibility":10000,'
-            + '"wind":{"speed":4.5,"deg":270},'
-            + '"sys":{"country":"US","sunrise":1708851600,"sunset":1708893600},'
-            + '"name":"San Francisco",'
-            + '"cod":200'
-            + '}';
-    }
-
-    private static String getMockForecast() {
-        return '{'
-            + '"list":['
-            + '  {"dt":1708876800,"main":{"temp":14.5,"temp_min":13.0,"temp_max":16.0,"humidity":70},'
-            + '   "weather":[{"main":"Clouds","description":"overcast clouds","icon":"04d"}],'
-            + '   "wind":{"speed":3.5},"pop":0.1,"dt_txt":"2026-02-25 12:00:00"},'
-            + '  {"dt":1708887600,"main":{"temp":13.0,"temp_min":12.0,"temp_max":14.5,"humidity":75},'
-            + '   "weather":[{"main":"Clouds","description":"broken clouds","icon":"04n"}],'
-            + '   "wind":{"speed":2.8},"pop":0.15,"dt_txt":"2026-02-25 15:00:00"},'
-            + '  {"dt":1708963200,"main":{"temp":16.0,"temp_min":14.0,"temp_max":18.0,"humidity":65},'
-            + '   "weather":[{"main":"Clear","description":"clear sky","icon":"01d"}],'
-            + '   "wind":{"speed":4.0},"pop":0.0,"dt_txt":"2026-02-26 12:00:00"},'
-            + '  {"dt":1709049600,"main":{"temp":12.5,"temp_min":10.0,"temp_max":15.0,"humidity":80},'
-            + '   "weather":[{"main":"Rain","description":"light rain","icon":"10d"}],'
-            + '   "wind":{"speed":5.5},"pop":0.7,"dt_txt":"2026-02-27 12:00:00"}'
-            + ']'
-            + '}';
+        System.assertEquals(false, result.success, 'Expected success to be false');
+        System.assert(result.errorMessage.contains('An error occurred'), 'Expected exception error message');
     }
 }
