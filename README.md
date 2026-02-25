@@ -23,6 +23,7 @@ A **Next-Gen Weather Forecast** application built on the Salesforce Platform wit
 | LWC Styles | `weatherForecast.css` | Glassmorphism theme, dynamic background classes, responsive grid |
 
 ## 🚀 Setup & Installation
+<img width="1853" height="1081" alt="image" src="https://github.com/user-attachments/assets/978af40a-aeb8-4842-b79e-2d10b4339eb4" />
 
 ### 1. Deploy to Salesforce
 
